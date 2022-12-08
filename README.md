@@ -19,7 +19,10 @@ Also provides a volumetric menu that allows you to choose a teleport destination
 Use the hand menu to initiate movement, the teleport menu or the settings pannel.
 
 ## Volumetric input
-This shows a 3d volumetric menu and allows selection with your finger tip. It is used to select teleport destinations but can also be used as a 3d keyboard. I will add a sample of this at a later date.
+This shows a 3d volumetric menu and allows selection with your finger tip. It is used to select teleport destinations but can also be used as a 3d keyboard. I will add a sample for the 3d keyboard at a later date.
+
+## Hands
+Allow hands to be easily hidden or faded out when required. You need to call a method each frame to keep them faded / hidden so you don't have to worry about turning them back on.
 
 ## ModalWindow
 A simple class to show a window with a choice of standard buttons.
