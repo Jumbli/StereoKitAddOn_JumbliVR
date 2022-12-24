@@ -29,12 +29,12 @@ namespace JumbliVR
 
                 // Handle visibility
                 Input.HandVisible((Handed)i, p.visible > 0);
-                p.visible += Time.Elapsedf;
+                p.visible += Time.Stepf;
 
                 // Handle color or opacity changes
                 if (p.colorOverridden > 0 && p.colorOverridden <= .9f)
                     p.material.SetColor("color", Color.Lerp(defaultColor, p.color, MathF.Max(0, p.colorOverridden)));
-                p.colorOverridden -= Time.Elapsedf;
+                p.colorOverridden -= Time.Stepf;
             }
 
         }

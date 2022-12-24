@@ -1,6 +1,7 @@
 ﻿using StereoKit;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 
 namespace JumbliVR
@@ -20,6 +21,12 @@ namespace JumbliVR
         static public float movementRangeMax = .1f;
         static public float rotationRangeMin = .3f;
         static public float rotationRangeMax = .8f;
+        static public bool showFloor = true;
+        static public bool showCompass = true;
+        static public Color BoundaryMarkerColour = Color.Black;
+        static public float controllerDeadspot = .05f;
+        static public bool invertFloor = true;
+        static public float floorScale = 3;
 
         // Add teleport points to this list as they become available
         // Default to containing some test data
@@ -35,7 +42,8 @@ namespace JumbliVR
         static public Hand handBeingUsed = Input.Hand(Handed.Right);
         static public Pose stagePose = Pose.Identity;
 
-        static private bool readyToSnapTurn = true;
+        static private bool handTrackingReadyToSnapTurn = true;
+        static private bool controllerReadyToSnapTurn = true;
         static private Vec3 localControllerPosition;
         static private LinePoint[]? controllerHome;
         static private LinePoint[]? controllerRotationGuideL;
@@ -45,11 +53,14 @@ namespace JumbliVR
         static private Color controllerColorLinear;
         static private Color lineColor;
         static private Color compassTextColor;
-        
-        
+        static private Plane flatPlane = new Plane(Vec3.Zero, Vec3.Forward);
+
+
         static private bool isControllerGrabbed = false;
-        static private Vec3 worldLocomotionDirection;
-        static private float newPlayerRotation;
+        static private Vec3 worldHandTrackedLocomotionDirection;
+        static private Vec3 worldControllerLocomotionDirection;
+        static private float newHandTrackingRotation;
+        static private float newControllerRotation;
         static private Vec3 worldHandlePosition;
 
         // Constant configuration
@@ -60,8 +71,8 @@ namespace JumbliVR
 
 
         static private LinePoint[] directionLine = {
-                new LinePoint(Vec3.Zero, controllerColorLinear,.001f),
-                new LinePoint(Vec3.Zero, controllerColorLinear,.01f)
+            new LinePoint(Vec3.Zero, controllerColorLinear,.001f),
+            new LinePoint(Vec3.Zero, controllerColorLinear,.01f)
         };
 
         static private void SetControllerColor(Color color)
@@ -72,8 +83,6 @@ namespace JumbliVR
                 (controllerColorLinear.r + .5f) % 1,
                 (controllerColorLinear.g + .5f) % 1,
                 (controllerColorLinear.b + .5f) % 1);
-
-            
 
             lineColor = controllerColorLinear * 1.5f;
             lineColor.a = 1;
@@ -129,6 +138,15 @@ namespace JumbliVR
             directionLine[0].color.a = 0;
             directionLine[1].color = controllerColorLinear * .8f;
 
+            physicalDirectionIndicator1 = new LinePoint[] {
+                new LinePoint(V.XYZ(0, floorLevel* .98f,-.8f), controllerColorLinear * .5f, .1f),
+                new LinePoint(V.XYZ(0, floorLevel* .98f,-.9f), controllerColorLinear * .5f, .001f)
+            };
+            physicalDirectionIndicator2 = new LinePoint[] {
+                new LinePoint(V.XYZ(.1f, floorLevel* .98f,.8f), controllerColorLinear * .5f, .015f),
+                new LinePoint(V.XYZ(-.1f, floorLevel* .98f,.8f), controllerColorLinear * .5f, .015f)
+            };
+
         }
 
 
@@ -136,17 +154,18 @@ namespace JumbliVR
 
         // Activate the controller at the users hand position so they
         // can suitably position it for comfort.
-        static public void ActivateController(Hand hand)
+
+        static public void ActivateController(Vec3 spawnLocation)
         {
-            localControllerPosition = stagePose.ToMatrix().Inverse.Transform(hand.palm).position;
-            worldControllerLocation = hand.palm.position;
-            worldLocomotionDirection = Vec3.Zero;
+            worldControllerLocation = spawnLocation;
+            localControllerPosition = stagePose.ToMatrix().Inverse.Transform(new Pose(worldControllerLocation)).position;
+            
+            worldHandTrackedLocomotionDirection = Vec3.Zero;
             handlePose = Pose.Identity;
             controllerActivated = true;
             isControllerGrabbed = false;
             circleRotation = Quat.Identity;
-            newPlayerRotation = 0;
-            
+            newHandTrackingRotation = 0;
             
             SetSnapTurnReady(true);
         }
@@ -164,55 +183,194 @@ namespace JumbliVR
         static private Vec3 worldControllerLocation;
 
         static private Quat grabbedOrientation;
+        static private Vec3 grabbedPlaneVector = Vec3.Zero;
 
-        // Return true while the controller is still activated
-        // You are recommended to hide the players hand when true
-        static public bool Draw(Color color)
+        static public Material floorMaterial = Material.Default;
+        static public bool initialised = false;
+        static float floorLevel = float.MaxValue;
+
+        static private LinePoint[]? physicalDirectionIndicator1;
+        static private LinePoint[]? physicalDirectionIndicator2;
+        static public void Init()
         {
-
-            if (teleportStatus != TeleportStatus.None)
-            {
-                DrawTeleportSelector(color);
-                controllerActivated = false;
+            initialised = true;
+            Shader s = Shader.FromFile("infiniteFloor.hlsl");
+            floorMaterial = new Material(s);
+            floorMaterial.Transparency = Transparency.Add;
+            floorMaterial.DepthWrite = false;
+            SetFloorStyle(invertFloor, floorScale);
+            if (World.HasBounds) {
+                if (floorLevel == float.MaxValue)
+                    floorLevel = World.BoundsPose.position.y;
             }
-
-            if (deferredTeleportRequested)
-            {
-                SetCameraOrientation(deferredTeleport.orientation);
-                SetPlayerPosition(deferredTeleport.position);
-                deferredTeleportRequested = false;
-            }
-
-            bool controllerIsBeingUsed = false;
-            if (controllerActivated)
-                controllerIsBeingUsed = DrawController(color);
-
-            return controllerIsBeingUsed;
+            if (floorLevel == float.MaxValue)
+                floorLevel = -1.5f;
         }
-        
-        static private bool DrawController(Color color)
+        static public void SetFloorStyle(bool invert = false, float scale = 1)
         {
+            invertFloor = invert;
+            floorScale = scale;
+            if (floorMaterial != null)
+            {
+                floorMaterial.SetFloat("inverse", invertFloor ? 1 : 0);
+                floorMaterial.SetFloat("fadeDistance", scale / 3);
+            }
+
+            }
+
+
+        static public void SetPlayerHeight(float newHeight)
+        {
+            floorLevel = newHeight * -1;
+            controllerColor = new Color(-1, -1, -1); // Force lines to be regenerated at correct height
+        }
+
+        // Call each frame
+        static public void Draw(Color color)
+        {
+
+            if (color.Equals(controllerColor) == false)
+                SetControllerColor(color);
+
+            if (initialised == false)
+                Init();
+
+            if (Platform.FilePickerVisible == false)
+            {
+
+                if (teleportStatus != TeleportStatus.None)
+                {
+                    DrawTeleportSelector();
+                    controllerActivated = false;
+                }
+
+                if (deferredTeleportRequested)
+                {
+                    SetCameraOrientation(deferredTeleport.orientation);
+                    SetPlayerPosition(deferredTeleport.position);
+                    deferredTeleportRequested = false;
+                }
+
+                if (controllerActivated)
+                {
+                    if (DrawController())
+                        Hands.HideHand(Locomotion.handBeingUsed.handed);
+                }
+                AnalogueControls();
+            }
+
+            // Draw an infinite floor
+            Hierarchy.Push(Renderer.CameraRoot.Pose.ToMatrix());
+            if (showFloor)
+            {
+                // The floor shader orients the lines with the stage.
+                // As the player uses artificial rotatation, the floor rotates with them.
+                // This consistency with the real world may help reduce nausea.
+                Mesh.Quad.Draw(floorMaterial, Matrix.TRS(
+                    Hierarchy.ToLocal(V.XYZ(Input.Head.position.x, Renderer.CameraRoot.Pose.position.y + floorLevel, Input.Head.position.z)), Quat.FromAngles(90, 0, 0), floorScale),
+                    Color.Black);
+                Hierarchy.Push(Matrix.S(floorScale));
+                floorMaterial.SetVector("stage", Hierarchy.ToLocal(Input.Head.position));
+                Hierarchy.Pop();
+
+                // The following lines and indicators move with the stage direction.
+                // They allow the user to orient themselves in their physical playing area.
+                Lines.Add(physicalDirectionIndicator1);
+                Lines.Add(physicalDirectionIndicator2);
+
+                Text.Add("FWD", Matrix.TRS(Vec3.Zero, Quat.FromAngles(90, 180, 0), 1.5f), controllerColorLinear * .5f, TextAlign.Center, TextAlign.Center,
+                    0, .3f / 1.5f, floorLevel * -.99f / 1.5f);
+            }
+            Hierarchy.Pop();
+            // The compass on the floor helps the user keep track of the in-game directions.
+            // North is the forward facing direction configured in the headset.
+            if (showCompass)
+            {
+                Text.Add("N", Matrix.TRS(Renderer.CameraRoot.Pose.position, Quat.FromAngles(90, 180, 0), 3), Color.Black, TextAlign.Center, TextAlign.Center, 0, .075f, floorLevel * -.33f);
+                Text.Add("E", Matrix.TRS(Renderer.CameraRoot.Pose.position, Quat.FromAngles(90, 180, 0), 3), Color.Black, TextAlign.Center, TextAlign.Center, -.075f, 0, floorLevel * -.33f);
+                Text.Add("S", Matrix.TRS(Renderer.CameraRoot.Pose.position, Quat.FromAngles(90, 180, 0), 3), Color.Black, TextAlign.Center, TextAlign.Center, 0, -.075f, floorLevel * -.33f);
+                Text.Add("W", Matrix.TRS(Renderer.CameraRoot.Pose.position, Quat.FromAngles(90, 180, 0), 3), Color.Black, TextAlign.Center, TextAlign.Center, .075f, 0, floorLevel * -.33f);
+            }
+
+
+
+        }
+
+        static private void AnalogueControls()
+        {
+            if (worldControllerLocomotionDirection.Length > .05f)
+                GlidePlayer(worldControllerLocomotionDirection);
+
+            float absRotation = Math.Abs(newControllerRotation);
+            if (absRotation > rotationRangeMin)
+            {
+                if (snapTurnDegrees == -1) // Smooth rotation
+                {
+                    float speed = Math.Abs(newControllerRotation) - rotationRangeMin;
+                    speed = 180 * Math.Min(rotationRangeMax, speed) * Math.Sign(newControllerRotation) * Time.Stepf;
+                    RotatePlayer(Quat.FromAngles(V.XYZ(0, speed, 0)));
+                }
+                else
+                {
+                    if (controllerReadyToSnapTurn && absRotation > rotationRangeMin + .1f)
+                    {
+                        RotatePlayer(Quat.FromAngles(V.XYZ(0, snapTurnDegrees * Math.Sign(newControllerRotation), 0)));
+                        controllerReadyToSnapTurn = false;
+                    }
+                }
+            }
+            else
+                controllerReadyToSnapTurn = true;
+
+            // Analogue stick operations
+            Vec2 moveStick = Input.Controller(Handed.Left).stick;
+            Vec2 rotateStick = Input.Controller(Handed.Right).stick;
             
+
+            Vec3 indicator = Input.Hand(Handed.Left).palm.position + Input.Hand(Handed.Left).palm.Right * .1f;
+            Hierarchy.Push(Input.Controller(Handed.Left).aim.ToMatrix());
+            worldControllerLocomotionDirection = Hierarchy.ToWorldDirection(V.XYZ(0, 0, moveStick.y * -1));
+            worldControllerLocomotionDirection += Vec3.Cross(Vec3.Up,(Input.Controller(Handed.Left).aim.Forward * V.XYZ(1, 0, 1)).Normalized) * moveStick.x;
+            worldControllerLocomotionDirection *= .25f;
+            Hierarchy.Pop();
+
+            // Show a direction indicator above the hand
+            if (worldControllerLocomotionDirection.Length > .05f)
+            {
+
+                Lines.Add(new LinePoint[]
+                {
+                    new LinePoint(indicator,controllerColorLinear,.02f),
+                    new LinePoint(indicator + worldControllerLocomotionDirection.Normalized * .03f , controllerColorLinear, .0001f)
+                });
+            }
+            newControllerRotation = Input.Controller(Handed.Right).stick.x;
+
+        }
+        static private bool DrawController()
+        {
 
             // We move the player (based on previous frame calculations) first
             // This stops the controller visually juddering
-            if (isControllerGrabbed)
+            if (isControllerGrabbed && handBeingUsed.IsTracked)
             {
-                if (worldLocomotionDirection.Length > .05f)
-                    GlidePlayer(worldLocomotionDirection);
-                float absRotation = Math.Abs(newPlayerRotation);
+
+                if (worldHandTrackedLocomotionDirection.Length > .05f)
+                    GlidePlayer(worldHandTrackedLocomotionDirection);
+
+                float absRotation = Math.Abs(newHandTrackingRotation);
                 if (absRotation > rotationRangeMin)
                 {
                     if (snapTurnDegrees == -1) // Smooth rotation
                     {
-                        float speed = Math.Abs(newPlayerRotation) - rotationRangeMin;
-                        speed = 180 * Math.Min(rotationRangeMax, speed) * Math.Sign(newPlayerRotation) * Time.Elapsedf;
+                        float speed = Math.Abs(newHandTrackingRotation) - rotationRangeMin;
+                        speed = 180 * Math.Min(rotationRangeMax, speed) * Math.Sign(newHandTrackingRotation) * Time.Stepf;
                         RotatePlayer(Quat.FromAngles(V.XYZ(0, speed , 0)));
                     }
                     else {
-                        if (readyToSnapTurn && absRotation > rotationRangeMin + .1f)
+                        if (handTrackingReadyToSnapTurn && absRotation > rotationRangeMin + .1f)
                         {
-                            RotatePlayer(Quat.FromAngles(V.XYZ(0, snapTurnDegrees * Math.Sign(newPlayerRotation), 0)));
+                            RotatePlayer(Quat.FromAngles(V.XYZ(0, snapTurnDegrees * Math.Sign(newHandTrackingRotation), 0)));
                             SetSnapTurnReady(false);
 
                             // We will have just jumped to a new position and corrupted the handle position
@@ -230,7 +388,7 @@ namespace JumbliVR
             }
             else
             {
-                float resetAlpha = Math.Min(1, Time.Elapsedf * 20);
+                float resetAlpha = Math.Min(1, Time.Stepf * 20);
                 circleRotation = Quat.Slerp(circleRotation, Quat.Identity, resetAlpha);
                 handlePose = Pose.Lerp(handlePose, Pose.Identity, resetAlpha);
                 if (MathF.Min(
@@ -240,10 +398,8 @@ namespace JumbliVR
                     controllerActivated = false;
             }
 
-            newPlayerRotation = 0;
+            newHandTrackingRotation = 0;
 
-            if (color.Equals(controllerColor) == false)
-                SetControllerColor(color);
 
             // Positions are relative to the player's stage, which moves as a result of locomotion
             Hierarchy.Push(stagePose.ToMatrix());
@@ -256,7 +412,7 @@ namespace JumbliVR
                 {
                     // Draw a semicircular home element and look towards the controller handle as it's dragged around
                     if (isControllerGrabbed)
-                        circleRotation = Quat.Slerp(circleRotation, Quat.LookAt(Vec3.Zero, Hierarchy.ToLocal(worldHandlePosition)), Time.Elapsedf * 10f);
+                        circleRotation = Quat.Slerp(circleRotation, Quat.LookAt(Vec3.Zero, Hierarchy.ToLocal(worldHandlePosition)), Time.Stepf * 10f);
                     Hierarchy.Push(Matrix.R(circleRotation));
                     Lines.Add(controllerHome);
                     Hierarchy.Pop();
@@ -270,6 +426,7 @@ namespace JumbliVR
                         else
                             handBeingUsed = Input.Hand(Handed.Right);
 
+                        grabbedPlaneVector = Vec3.Zero;
                         grabbedOrientation = handBeingUsed.palm.orientation;
                     }
 
@@ -287,7 +444,7 @@ namespace JumbliVR
                         Quat.LookDir(Hierarchy.ToLocalDirection(Vec3.Right)),letterScale),TextStyle.Default,compassTextColor);
 
                     Hierarchy.Push(handlePose.ToMatrix()); // Scale down the handle sphere
-                    Mesh.Sphere.Draw(Material.Default, Matrix.S(.05f), color, RenderLayer.Vfx);
+                    Mesh.Sphere.Draw(Material.Default, Matrix.S(.05f), controllerColor, RenderLayer.Vfx);
                     Hierarchy.Pop();
 
 
@@ -299,30 +456,39 @@ namespace JumbliVR
                     worldHandlePosition = Hierarchy.ToWorld(handlePose.position);
 
                     // Calc the world direction we are moving
-                    worldLocomotionDirection = Hierarchy.ToWorldDirection(handlePose.position);
-                    if (flyingEnabled == false)
-                        worldLocomotionDirection *= V.XYZ(1, 0, 1);
+                    worldHandTrackedLocomotionDirection = Hierarchy.ToWorldDirection(handlePose.position);
 
                     if (rotationEnabled)
                     {
                         // Draw the rotation guide
-                        Quat rotationGuideOrientation = Quat.LookAt(handlePose.position, Hierarchy.ToLocal(Input.Head.position));
+                        Quat rotationGuideOrientation = Quat.LookAt(handlePose.position, Hierarchy.ToLocal(Utils.CalcNeckPosition()));
                         
                         Hierarchy.Push(Matrix.TR(handlePose.position, rotationGuideOrientation));
                         {
                             Lines.Add(controllerRotationGuideL);
                             Lines.Add(controllerRotationGuideR);
-                            Plane p = new Plane(Vec3.Zero, Vec3.Forward);
+                            
 
                             Vec3 rotationIndicator = Vec3.Up;
                             if (handBeingUsed != null)
                             {
                                 if (isControllerGrabbed)
                                 {
-                                    Quat diff = Quat.Delta(grabbedOrientation, handBeingUsed.palm.orientation);
-                                    rotationIndicator = p.Closest(Hierarchy.ToLocalDirection(diff * Vec3.Up) * .05f).Normalized;
+                                    if (grabbedPlaneVector.Equals(Vec3.Zero))
+                                        grabbedPlaneVector = flatPlane.Closest(Hierarchy.ToLocalDirection(handBeingUsed.palm.Right).Normalized);
+
+                                    // Calculate how far we are rotating our palm
+                                    // This is overcomplicated but works at most angles, such as lying down
+                                    // And while you are physically walking around
+                                    Vec3 currentPlaneVector = flatPlane.Closest(Hierarchy.ToLocalDirection(handBeingUsed.palm.Right).Normalized);
+                                    float angleBetweenVectors = Vec3.AngleBetween(grabbedPlaneVector, currentPlaneVector);
+                                    float direction = (grabbedPlaneVector.y * currentPlaneVector.x > grabbedPlaneVector.x * currentPlaneVector.y) ? -1 : 1;
+
+                                    // Direction for the rotation needle
+                                    rotationIndicator = Quat.FromAngles(0, 0, angleBetweenVectors * direction) * Vec3.Up;
+                                    
                                 }
-                                newPlayerRotation = rotationIndicator.x;
+                                newHandTrackingRotation = rotationIndicator.x;
                             }
                             if (controllerRotationNeedle != null)
                             {
@@ -367,15 +533,15 @@ namespace JumbliVR
         static public Pose NullTeleportPose = new Pose(.001f, .0012f, .0013f);
 
         // Return true while selection in progress
-        static private void DrawTeleportSelector(Color color)
+        static private void DrawTeleportSelector()
         {
             
             Hierarchy.Push(stagePose.ToMatrix());
             Hierarchy.Push(Matrix.T(localControllerPosition));
             //Hierarchy.Push(Matrix.R(Quat.FromAngles(0, 180, 0)));
-            string selectedId = VolumetricInput.Draw(color, Color.White);
+            string selectedId = VolumetricInput.Draw(controllerColor, Color.White);
 
-            Color linearColor =  color.ToLinear();
+            Color linearColor =  controllerColorLinear;
             linearColor.a = .5f;
 
             // Add arrow to each label pointing towards its destination
@@ -428,8 +594,8 @@ namespace JumbliVR
         // Change color of rotation guide depending on ready state
         static private void SetSnapTurnReady(bool isReady)
         {
-            readyToSnapTurn = isReady;
-            Color newColor = controllerColorLinear * (readyToSnapTurn?1.25f:.8f);
+            handTrackingReadyToSnapTurn = isReady;
+            Color newColor = controllerColorLinear * (handTrackingReadyToSnapTurn?1.25f:.8f);
             newColor.a = 1;
             if (controllerRotationGuideL != null)
             {
@@ -472,7 +638,7 @@ namespace JumbliVR
             stagePose = Hierarchy.ToWorld(stagePose);
             Hierarchy.Pop();
             Hierarchy.Pop();
-            Renderer.CameraRoot = stagePose.ToMatrix();            
+            UpdateStagePose(stagePose);
         }
 
         // Move the stage so the player is stood at the set position
@@ -481,15 +647,24 @@ namespace JumbliVR
             // The player may not be at the centre of the stage so we have to adjust for that
             Vec3 playerPositionInStage = stagePose.ToMatrix().Inverse.Transform(Input.Head.position);
             stagePose.position = newPosition - Quat.Rotate(stagePose.orientation, playerPositionInStage);
-            Renderer.CameraRoot = stagePose.ToMatrix();
+            UpdateStagePose(stagePose);
         }
 
         // Used to move the player in a certain direction
         // The direction vector includes the speed as its length
         static public void GlidePlayer(Vec3 locomotionDirection)
         {
+            if (flyingEnabled == false)
+                locomotionDirection *= V.XYZ(1, 0, 1);
+
             float speed = SKMath.Lerp(minMetersPerSecond, maxMetersPerSecond, MathF.Min(movementRangeMax,locomotionDirection.Length - movementRangeMin) / movementRangeMax);
-            stagePose.position += locomotionDirection * Time.ElapsedUnscaledf * speed;
+            stagePose.position += locomotionDirection * Time.Stepf * speed;
+            UpdateStagePose(stagePose);
+        }
+
+        static public void UpdateStagePose(Pose pose)
+        {
+            stagePose = pose;
             Renderer.CameraRoot = stagePose.ToMatrix();
         }
 

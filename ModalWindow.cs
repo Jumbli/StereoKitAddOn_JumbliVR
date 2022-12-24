@@ -49,7 +49,7 @@ namespace JumbliVR
             message = messageToDisplay;
             buttonsToAdd = ButtonsToAdd.None;
 
-            pose = UI.PopupPose(Vec3.Zero);
+            pose = Utils.GetPopupPose(Vec3.Zero);
             if (Vec3.Distance(pose.position, Input.Head.position) > 1 ||
                     Vec3.Dot((Input.Head.position - pose.position).Normalized, Input.Head.Forward) < .8f)
             {

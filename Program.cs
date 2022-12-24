@@ -7,7 +7,7 @@ internal class Program
 {
     private static void Main(string[] args)
     {
-        SK.Initialize();
+        SK.Initialize(new SKSettings() {assetsFolder = "Assets"});
 
         TextStyle iconTextStyle = TextStyle.Default; // Replace with your custom icon text style;
 
@@ -16,7 +16,7 @@ internal class Program
         HandMenuRadial handMenu = SK.AddStepper(new HandMenuRadial(
             new HandRadialLayer("Locomotion",
             // Launches the locomotion controller
-            new HandMenuItem("Move", null, new Action(delegate () { Locomotion.ActivateController(Input.Hand(Handed.Right)); })),
+            new HandMenuItem("Move", null, new Action(delegate () { Locomotion.ActivateController(Input.Hand(Handed.Right).palm.position); })),
             // Launches the volumetric teleport menu
             new HandMenuItem("Go to", null, new Action(delegate () { Locomotion.ActivateTeleport(Input.Hand(Handed.Right), CustomIconRenderer); })),
             new HandMenuItem("Settings", null, new Action(delegate () { Locomotion.ActiveSettingsWindow(); }))
@@ -54,15 +54,14 @@ internal class Program
             foreach (KeyValuePair<Vec4, Color> kvp in env)
                 Mesh.Sphere.Draw(Material.Default, Matrix.TS(kvp.Key.XYZ, SKMath.Lerp(.1f,.5f,kvp.Key.w)), kvp.Value);
 
-            Text.Add("North",Matrix.TRS(Vec3.Forward * 5f,Quat.FromAngles(0,180,0),10f),Color.Black);
-            Text.Add("South",Matrix.TRS(Vec3.Forward * -5f,Quat.FromAngles(0,0,0),10f),Color.Black);
-            Text.Add("East",Matrix.TRS(Vec3.Right * 5f,Quat.FromAngles(0,90,0),10f),Color.Black);
-            Text.Add("West",Matrix.TRS(Vec3.Right * -5f,Quat.FromAngles(0,270,0),10f),Color.Black);
-            Text.Add("Home",Matrix.TRS(Vec3.Up * -1.6f,Quat.FromAngles(90,180,0),10f),Color.Black);
+            Text.Add("North",Matrix.TRS(Vec3.Forward * 5f,Quat.FromAngles(0,180,0),3),Color.Black);
+            Text.Add("South",Matrix.TRS(Vec3.Forward * -5f,Quat.FromAngles(0,0,0),3),Color.Black);
+            Text.Add("East",Matrix.TRS(Vec3.Right * 5f,Quat.FromAngles(0,90,0),3),Color.Black);
+            Text.Add("West",Matrix.TRS(Vec3.Right * -5f,Quat.FromAngles(0,270,0),3),Color.Black);
+            Text.Add("Home",Matrix.TRS(Vec3.Up * -1.6f,Quat.FromAngles(90,180,0),3),Color.Black);
 
             // Handle locomotion
-            if (Locomotion.Draw(handColor))
-                Hands.HideHand(Locomotion.handBeingUsed.handed);
+            Locomotion.Draw(handColor);
             // Show a window when required
             ModalWindow.Draw();
             // Fade in/out hands or make invisible as requested by other components
