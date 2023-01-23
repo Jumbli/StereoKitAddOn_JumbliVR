@@ -20,9 +20,11 @@ Displays a compass on the controller and the floor to orient you in game, while 
 Also provides a volumetric menu that allows you to choose a teleport destination.
 Use the hand menu to initiate movement, the teleport menu or the settings pannel.
 
-
 ## Volumetric input
 This shows a 3d volumetric menu and allows selection with your finger tip. It is used to select teleport destinations but can also be used as a 3d keyboard. I will add a sample for the 3d keyboard at a later date.
+
+## IconCache
+Create SDF icons from font files (use FontForge to create your own). This class will async generate the SDF for a given character. It's intended for big icons rather than text. A single texture atlas is used and grows as required up to your configured maximum then the oldest slots are reused. StbTrueType is used (via StbTrueTypeSharp). It's processor intensive, hence the async.
 
 ## Hands
 Allow hands to be easily hidden or faded out when required. You need to call a method each frame to keep them faded / hidden so you don't have to worry about turning them back on.

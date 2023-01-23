@@ -44,7 +44,7 @@ namespace JumbliVR
             set { config.sdfSize = value; SetConfig(config, false,true); }
         }
 
-        static public void SetConfig(Config newConfig = null, bool increaseSize = false, bool sdfSizeChanged = false)
+        static public void SetConfig(Config? newConfig = null, bool increaseSize = false, bool sdfSizeChanged = false)
         {
             int[] oldDimensions = new int[2];
 
