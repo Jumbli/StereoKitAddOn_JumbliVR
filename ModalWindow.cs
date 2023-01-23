@@ -62,14 +62,24 @@ namespace JumbliVR
             isActive = true;
         }
 
+        public delegate void ActionRef<T1, T2>(T1 arg1, ref T2 arg2);
+
+        // Call backs to allow standard header / footer / stlying / positioning
+        static ActionRef<string, Pose>? beginWindow;
+        static public Action<string>? EndWindow;
+
+        const string windowName = "ModalWindow";
+
+        internal static ActionRef<string, Pose>? BeginWindow { get => beginWindow; set => beginWindow = value; }
 
         static public void Draw()
         {
             if (isActive == false)
                 return;
 
-            UI.WindowBegin("ModalWindow", ref pose, UIWin.Body, UIMove.Exact);
-            
+            UI.WindowBegin(windowName, ref pose, UIWin.Body, UIMove.Exact);
+            BeginWindow?.Invoke(windowName, ref pose);
+
             UI.LayoutReserve(V.XY(.2f, .0001f));
 
             // Draw content
@@ -108,6 +118,7 @@ namespace JumbliVR
                     break;
             }
 
+            EndWindow?.Invoke(windowName);
             UI.WindowEnd();
 
         }

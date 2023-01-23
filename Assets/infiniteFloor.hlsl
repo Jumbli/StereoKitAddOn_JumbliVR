@@ -10,26 +10,30 @@ float4 radius;
 float3 stage;
 //--inverse = 0
 float inverse;
+//--fadeDistance = 1
+float fadeDistance;
 
 struct vsIn {
 	float4 pos : SV_POSITION;
+	float3 norm : NORMAL0;
 	float2 uv : TEXCOORD0;
 };
 struct psIn {
 	float4 pos   : SV_POSITION;
-	float4 world : TEXCOORD0;
+	float2 uv : TEXCOORD0;
+	float4 world : TEXCOORD1;
 	uint view_id : SV_RenderTargetArrayIndex;
-	float2 uv : TEXCOORD1;
+
 };
 
 psIn vs(vsIn input, uint id : SV_InstanceID) {
 	psIn o;
 	o.view_id = id % sk_view_count;
-	id        = id / sk_view_count;
-	o.uv = input.uv;
+	id = id / sk_view_count;
+	o.uv = input.uv - .5;
 	o.world = mul(input.pos, sk_inst[id].world);
-	o.pos   = mul(o.world,   sk_viewproj[o.view_id]);
-	
+	o.pos = mul(o.world, sk_viewproj[o.view_id]);
+
 
 	return o;
 }
@@ -38,11 +42,11 @@ float4 ps(psIn input) : SV_TARGET{
 	// http://madebyevan.com/shaders/grid/
 
 	// Make center solid
-	
+
 
 	//float3 pos = input.world.xyz - stage;
-	float2 pos = input.uv - stage.xz - .5f;
-	float center = distance(stage.xz, input.uv -.5f) < .111;
+	float2 pos = input.uv - stage.xz;
+	float center = distance(stage.xz, input.uv) < .111;
 
 	float pi = 3.141592653589793;
 	float scale = .5; // How many radial segments
@@ -60,7 +64,7 @@ float4 ps(psIn input) : SV_TARGET{
 		alpha = 1 - alpha;
 
 	// Fade out by 1 meter away from player
-	float fade = max(0, 1 - distance(sk_camera_pos[0].xz, input.world.xz));
+	float fade = max(0, fadeDistance - distance(sk_camera_pos[0].xz, input.world.xz));
 
 	float strength = max(0,min(alpha, 1.0) * color.a * fade);
 

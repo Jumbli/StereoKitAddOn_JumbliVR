@@ -5,6 +5,10 @@ using System.Collections;
 
 internal class Program
 {
+
+    static Random random = new Random();
+    static Vec2[]? codePointRanges;
+
     private static void Main(string[] args)
     {
         SK.Initialize(new SKSettings() {assetsFolder = "Assets"});
@@ -19,6 +23,8 @@ internal class Program
             new HandMenuItem("Move", null, new Action(delegate () { Locomotion.ActivateController(Input.Hand(Handed.Right).palm.position); })),
             // Launches the volumetric teleport menu
             new HandMenuItem("Go to", null, new Action(delegate () { Locomotion.ActivateTeleport(Input.Hand(Handed.Right), CustomIconRenderer); })),
+            // Test SDF Icons
+            new HandMenuItem("Add SDF", null, new Action(delegate () { AddSDFIcon(); })),
             new HandMenuItem("Settings", null, new Action(delegate () { Locomotion.ActiveSettingsWindow(); }))
             )));
 
@@ -33,8 +39,10 @@ internal class Program
             {"South", new Pose(V.XYZ(0,0,4), Quat.FromAngles(0,180,0))}
         };
 
+        // Set sdfIcon defaults
+        IconCache.SetConfig(new IconCache.Config() { sdfSize = 128, maxHeight = 1024, maxWidth = 1024, minHeight = 512, minWidth = 512, timeout = 60});
+
         // Create some stuff to move around
-        Random r = new Random();
         Dictionary<Vec4, Color> env = new Dictionary<Vec4, Color>();
         BuildEnvironment();
 
@@ -66,6 +74,9 @@ internal class Program
             ModalWindow.Draw();
             // Fade in/out hands or make invisible as requested by other components
             Hands.DrawHands();
+
+            // Draw any SDF icons added via the hand menu
+            IconCacheTest.DrawTestIcons();
         });
 
         // The volumetric menu will callback to CustomIconRenderer to display any custom icons
@@ -82,13 +93,26 @@ internal class Program
             int envRange = 5;
             while (count > 0)
             {
-                Vec4 v = new Vec4(r.NextInt64(envRange * -1, envRange), r.NextInt64(envRange * -1, envRange), r.NextInt64(envRange * -1, envRange), r.NextSingle());
+                Vec4 v = new Vec4(random.NextInt64(envRange * -1, envRange), random.NextInt64(envRange * -1, envRange), random.NextInt64(envRange * -1, envRange), random.NextSingle());
                 if (env.ContainsKey(v) == false)
                 {
-                    env.Add(v, Color.HSV(r.NextSingle(), .5f, .5f));
+                    env.Add(v, Color.HSV(random.NextSingle(), .5f, .5f));
                     count--;
                 }
             }            
+        }
+
+        const string sdfFontFile = "Assets\\FluentSystemIcons-Filled.ttf";
+        
+
+        void AddSDFIcon()
+        {
+            if (codePointRanges == null)
+                codePointRanges = new Vec2[] { new Vec2(0,4), new Vec2(9,122), new Vec2(126,366), new Vec2(459,702)};
+
+            Vec2 range = codePointRanges[random.NextInt64(0,codePointRanges.Length)];
+            int codePoint = (int)random.NextInt64((long)range.x, (long)range.y);
+            IconCacheTest.AddTextIcon(sdfFontFile,codePoint,Input.Hand(Handed.Right).palm);
         }
     }
 }

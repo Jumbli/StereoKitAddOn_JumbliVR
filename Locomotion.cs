@@ -185,7 +185,7 @@ namespace JumbliVR
         static private Quat grabbedOrientation;
         static private Vec3 grabbedPlaneVector = Vec3.Zero;
 
-        static public Material floorMaterial = Material.Default;
+        static public Material floorMaterial = Material.Default.Copy();
         static public bool initialised = false;
         static float floorLevel = float.MaxValue;
 
@@ -254,7 +254,7 @@ namespace JumbliVR
                 if (controllerActivated)
                 {
                     if (DrawController())
-                        Hands.HideHand(Locomotion.handBeingUsed.handed);
+                        Hands.HideHand(true, Locomotion.handBeingUsed.handed);
                 }
                 AnalogueControls();
             }
@@ -263,21 +263,23 @@ namespace JumbliVR
             Hierarchy.Push(Renderer.CameraRoot.Pose.ToMatrix());
             if (showFloor)
             {
+                Hierarchy.Push(Matrix.S(floorScale));
+                floorMaterial.SetVector("stage", Hierarchy.ToLocal(Input.Head.position));
+                Hierarchy.Pop();
+
                 // The floor shader orients the lines with the stage.
                 // As the player uses artificial rotatation, the floor rotates with them.
                 // This consistency with the real world may help reduce nausea.
                 Mesh.Quad.Draw(floorMaterial, Matrix.TRS(
                     Hierarchy.ToLocal(V.XYZ(Input.Head.position.x, Renderer.CameraRoot.Pose.position.y + floorLevel, Input.Head.position.z)), Quat.FromAngles(90, 0, 0), floorScale),
                     Color.Black);
-                Hierarchy.Push(Matrix.S(floorScale));
-                floorMaterial.SetVector("stage", Hierarchy.ToLocal(Input.Head.position));
-                Hierarchy.Pop();
+
 
                 // The following lines and indicators move with the stage direction.
                 // They allow the user to orient themselves in their physical playing area.
                 Lines.Add(physicalDirectionIndicator1);
                 Lines.Add(physicalDirectionIndicator2);
-
+                
                 Text.Add("FWD", Matrix.TRS(Vec3.Zero, Quat.FromAngles(90, 180, 0), 1.5f), controllerColorLinear * .5f, TextAlign.Center, TextAlign.Center,
                     0, .3f / 1.5f, floorLevel * -.99f / 1.5f);
             }
@@ -435,13 +437,13 @@ namespace JumbliVR
 
                     Vec3 localHeadPosition = Hierarchy.ToLocal(Input.Head.position);
                     Text.Add("S",Matrix.TRS(handlePose.position + letterOffset * Hierarchy.ToLocalDirection(Vec3.Forward) * -1,
-                        Quat.LookDir(Hierarchy.ToLocalDirection(Vec3.Forward) * -1f),letterScale),TextStyle.Default,compassTextColor);
+                        Quat.LookDir(Hierarchy.ToLocalDirection(Vec3.Forward) * -1f),letterScale),compassTextColor);
                     Text.Add("N",Matrix.TRS(handlePose.position + letterOffset * Hierarchy.ToLocalDirection(Vec3.Forward),
-                        Quat.LookDir(Hierarchy.ToLocalDirection(Vec3.Forward)),letterScale),TextStyle.Default,compassTextColor);
+                        Quat.LookDir(Hierarchy.ToLocalDirection(Vec3.Forward)),letterScale),compassTextColor);
                     Text.Add("W",Matrix.TRS(handlePose.position + letterOffset * Hierarchy.ToLocalDirection(Vec3.Right) * -1,
-                        Quat.LookDir(Hierarchy.ToLocalDirection(Vec3.Right) * -1f),letterScale),TextStyle.Default,compassTextColor);
+                        Quat.LookDir(Hierarchy.ToLocalDirection(Vec3.Right) * -1f),letterScale),compassTextColor);
                     Text.Add("E",Matrix.TRS(handlePose.position + letterOffset * Hierarchy.ToLocalDirection(Vec3.Right),
-                        Quat.LookDir(Hierarchy.ToLocalDirection(Vec3.Right)),letterScale),TextStyle.Default,compassTextColor);
+                        Quat.LookDir(Hierarchy.ToLocalDirection(Vec3.Right)),letterScale),compassTextColor);
 
                     Hierarchy.Push(handlePose.ToMatrix()); // Scale down the handle sphere
                     Mesh.Sphere.Draw(Material.Default, Matrix.S(.05f), controllerColor, RenderLayer.Vfx);

@@ -12,7 +12,7 @@ namespace JumbliVR
             public float visible = 1;  // 1 == visible
             public Color color = Color.White;
             public float colorOverridden = 0; // 1 == overridden
-            public Material material = Material.Unlit;
+            public Material material = Material.Unlit.Copy();
         }
         static private Properties[] properties = { new Properties(), new Properties() };
 
@@ -40,10 +40,13 @@ namespace JumbliVR
         }
 
         // Repeatedly call this routine during an interaction to keep the hand invivisble
-        static public void HideHand(Handed handed = Handed.Max)
+        // Call it directly after a UI component with forceHide set to false to only hide the hand when being used
+        static public void HideHand(bool forceHide = false, Handed handed = Handed.Max)
         {
             for (int i = 0; i < 2; i++) {
                 if ((int)handed == i || handed == Handed.Max)
+                    if (forceHide || 
+                        (UI.LastElementActive.IsActive() && UI.LastElementHandUsed((Handed)i).IsActive()))
                     properties[i].visible = 0;
             }
         }
