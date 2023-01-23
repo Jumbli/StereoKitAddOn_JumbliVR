@@ -347,10 +347,11 @@ namespace JumbliVR
             if (testIcons == null)
                 return;
 
+            int i=0;
             foreach (DrawTestIcon icon in testIcons)
             {
                 IconCache.DrawIcon(ref icon.material,icon.fontFile,icon.codePoint,icon.windowPose.ToMatrix(.2f),Color.HSV(.5f,.5f,.5f),false);
-                UI.Handle("textIcon" + icon.codePoint, ref icon.windowPose,textIconBounds);
+                UI.Handle("textIcon" + i++, ref icon.windowPose,textIconBounds);
             }
 
         }        
