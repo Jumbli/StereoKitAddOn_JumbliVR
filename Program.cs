@@ -30,13 +30,13 @@ internal class Program
 
 
         // Update this list of teleport destination as they become available or unavailable
-        Locomotion.teleportDestinations = new Dictionary<string, Pose>
+        Locomotion.teleportDestinations = new Dictionary<int, Locomotion.TeleportDetails>
         {
-            {"Home", Pose.Identity},
-            {"West side", new Pose(V.XYZ(-4,0,0), Quat.FromAngles(0,90,0))},
-            {"East side", new Pose(V.XYZ(4,0,0), Quat.FromAngles(0,270,0))},
-            {"High", new Pose(V.XYZ(0,4,0), Quat.FromAngles(0,0,0))},
-            {"South", new Pose(V.XYZ(0,0,4), Quat.FromAngles(0,180,0))}
+            {0, new Locomotion.TeleportDetails("Home", Pose.Identity)},
+            {1, new Locomotion.TeleportDetails("West side", new Pose(V.XYZ(-4,0,0), Quat.FromAngles(0,90,0)))},
+            {2, new Locomotion.TeleportDetails("East side", new Pose(V.XYZ(4,0,0), Quat.FromAngles(0,270,0)))},
+            {3, new Locomotion.TeleportDetails("High", new Pose(V.XYZ(0,4,0), Quat.FromAngles(0,0,0)))},
+            {4, new Locomotion.TeleportDetails("South", new Pose(V.XYZ(0,0,4), Quat.FromAngles(0,180,0)))}
         };
 
         // Set sdfIcon defaults
@@ -62,11 +62,11 @@ internal class Program
             foreach (KeyValuePair<Vec4, Color> kvp in env)
                 Mesh.Sphere.Draw(Material.Default, Matrix.TS(kvp.Key.XYZ, SKMath.Lerp(.1f,.5f,kvp.Key.w)), kvp.Value);
 
-            Text.Add("North",Matrix.TRS(Vec3.Forward * 5f,Quat.FromAngles(0,180,0),3),Color.Black);
-            Text.Add("South",Matrix.TRS(Vec3.Forward * -5f,Quat.FromAngles(0,0,0),3),Color.Black);
-            Text.Add("East",Matrix.TRS(Vec3.Right * 5f,Quat.FromAngles(0,90,0),3),Color.Black);
-            Text.Add("West",Matrix.TRS(Vec3.Right * -5f,Quat.FromAngles(0,270,0),3),Color.Black);
-            Text.Add("Home",Matrix.TRS(Vec3.Up * -1.6f,Quat.FromAngles(90,180,0),3),Color.Black);
+            Text.Add("North",Matrix.TRS(V.XYZ(0, 1.6f, -5f),Quat.FromAngles(0,180,0),3),Color.Black);
+            Text.Add("South",Matrix.TRS(V.XYZ(0, 1.6f, 5f),Quat.FromAngles(0,0,0),3),Color.Black);
+            Text.Add("East",Matrix.TRS(V.XYZ(5, 1.6f, 0),Quat.FromAngles(0,90,0),3),Color.Black);
+            Text.Add("West",Matrix.TRS(V.XYZ(-5, 1.6f, 0),Quat.FromAngles(0,270,0),3),Color.Black);
+            Text.Add("Home",Matrix.TRS(V.XYZ(0, 0f, 0f),Quat.FromAngles(90,180,0),3),Color.Black);
 
             // Handle locomotion
             Locomotion.Draw(handColor);

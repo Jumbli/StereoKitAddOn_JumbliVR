@@ -29,6 +29,15 @@ namespace JumbliVR
         }
         static private ButtonsToAdd buttonsToAdd;
 
+        static public void SetWindowHeight(float y)
+        {
+            pose.position.y = y;
+        }
+        static public float GetWindowHeight()
+        {
+            return pose.position.y;
+        }
+
         static public void ActivateWithConfirmCancelButtons(Action confirmAction, string messageToDisplay = "", Object ?textStyleForWindow = null, Action ?customDraw = null)
         {
             modalConfirmAction = confirmAction;

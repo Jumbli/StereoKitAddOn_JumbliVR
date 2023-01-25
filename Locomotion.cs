@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Security.Cryptography;
 
 namespace JumbliVR
 {
@@ -27,20 +28,37 @@ namespace JumbliVR
         static public float controllerDeadspot = .05f;
         static public bool invertFloor = true;
         static public float floorScale = 3;
+        static public float heightAdjustment = 0;
 
         // Add teleport points to this list as they become available
         // Default to containing some test data
-        static public Dictionary<string, Pose> teleportDestinations = new Dictionary<string, Pose>()
+        static public Dictionary<int, TeleportDetails> teleportDestinations = new Dictionary<int, TeleportDetails>()
         {
-            {"Digby", new Pose(-3,0,0,Quat.FromAngles(0,90,0)) },
-            {"Home", new Pose(0,0,0) },
-            {"Space", new Pose(0,20,1) },
-            {"Secret", new Pose(0,-20,-21) },
+            {0, new TeleportDetails("Digby", new Pose(-3,0,0,Quat.FromAngles(0,90,0))) },
+            {1, new TeleportDetails("Home", new Pose(0,0,0)) },
+            {2, new TeleportDetails("Space", new Pose(0,20,1)) },
+            {3, new TeleportDetails("Secret", new Pose(0,-20,-21)) }
         };
+        public struct TeleportDetails
+        {
+            public string name;
+            public Pose pose;
+            public TeleportDetails(string inName, Pose inPose)
+            {
+                name = inName;
+                pose = inPose;
+            }
+        }
 
         // Useful public info
         static public Hand handBeingUsed = Input.Hand(Handed.Right);
+        
+        // This is usually the center of your play area, at eye height.
         static public Pose stagePose = Pose.Identity;
+        // The cameraPose is the stagePose offset by any height override (usually for seated players)
+        static private Pose cameraPose = Pose.Identity;
+        // The floor level is the distance of the floor from the cameraPose
+        static private float floorLevel = float.MaxValue;
 
         static private bool handTrackingReadyToSnapTurn = true;
         static private bool controllerReadyToSnapTurn = true;
@@ -187,7 +205,7 @@ namespace JumbliVR
 
         static public Material floorMaterial = Material.Default.Copy();
         static public bool initialised = false;
-        static float floorLevel = float.MaxValue;
+        
 
         static private LinePoint[]? physicalDirectionIndicator1;
         static private LinePoint[]? physicalDirectionIndicator2;
@@ -201,10 +219,11 @@ namespace JumbliVR
             SetFloorStyle(invertFloor, floorScale);
             if (World.HasBounds) {
                 if (floorLevel == float.MaxValue)
-                    floorLevel = World.BoundsPose.position.y;
+                    floorLevel = (World.BoundsPose.position.y - Renderer.CameraRoot.Pose.position.y);
             }
             if (floorLevel == float.MaxValue)
                 floorLevel = -1.5f;
+            UpdateStagePose(new Pose(0,floorLevel * -1,0));
         }
         static public void SetFloorStyle(bool invert = false, float scale = 1)
         {
@@ -216,7 +235,14 @@ namespace JumbliVR
                 floorMaterial.SetFloat("fadeDistance", scale / 3);
             }
 
-            }
+        }
+
+        static public Vec3 GetStageFloorPosition()
+        {
+            Vec3 result = stagePose.position;
+            result.y += floorLevel;
+            return result;
+        }
 
 
         static public void SetPlayerHeight(float newHeight)
@@ -228,15 +254,22 @@ namespace JumbliVR
         // Call each frame
         static public void Draw(Color color)
         {
+            if (initialised == false)
+                Init();
 
             if (color.Equals(controllerColor) == false)
                 SetControllerColor(color);
 
-            if (initialised == false)
-                Init();
+
 
             if (Platform.FilePickerVisible == false)
             {
+
+                if (deferredStageUpdate)
+                {
+                    deferredStageUpdate = false;
+                    UpdateStagePose(stagePose);
+                }
 
                 if (teleportStatus != TeleportStatus.None)
                 {
@@ -246,8 +279,7 @@ namespace JumbliVR
 
                 if (deferredTeleportRequested)
                 {
-                    SetCameraOrientation(deferredTeleport.orientation);
-                    SetPlayerPosition(deferredTeleport.position);
+                    TeleportTo(deferredTeleport);
                     deferredTeleportRequested = false;
                 }
 
@@ -524,11 +556,12 @@ namespace JumbliVR
         {
             handBeingUsed = hand;
             localControllerPosition = stagePose.ToMatrix().Inverse.Transform(hand[FingerId.Index, JointId.Tip].position);
-            VolumetricInput.Activate(hand, teleportDestinations.Keys.ToArray(), customRenderer);            
+
+            VolumetricInput.Activate(hand, (from e in teleportDestinations.Values select e.name).ToArray(), customRenderer);            
             teleportStatus = TeleportStatus.Selecting;
         }
 
-        public delegate void Notify(string destinationId);
+        public delegate void Notify(int destinationKey);
         static public event Notify ?Teleported;
         // Set teleport desitnations to this pose when you just want a
         // dummy entry, such as a close button.
@@ -549,10 +582,12 @@ namespace JumbliVR
             // Add arrow to each label pointing towards its destination
             foreach (KeyValuePair<string, VolumetricInput.Arrangement> kvp in VolumetricInput.arrangement)
             {
-                Pose p = teleportDestinations[kvp.Key];
+                
+                Pose p = teleportDestinations.First(x => x.Value.name == kvp.Key).Value.pose;
 
                 if (p.Equals(NullTeleportPose) == false)
                 {
+                    p.position.y -= floorLevel;
                     p = Hierarchy.ToLocal(p);
                     Vec3 direction = (p.position - kvp.Value.pose.position);
                     if (direction.Length > 1f)
@@ -580,17 +615,25 @@ namespace JumbliVR
 
             if (selectedId != "")
             {
-                if (teleportDestinations.ContainsKey(selectedId)) {
-                    Pose p = teleportDestinations[selectedId];
+                int key = teleportDestinations.First(x => x.Value.name == selectedId).Key;
+                if (teleportDestinations.ContainsKey(key)) {
+                    Pose p = teleportDestinations[key].pose;
                     if (p.Equals(NullTeleportPose) == false)
-                    {
-                        SetCameraOrientation(p.orientation);
-                        SetPlayerPosition(p.position);
-                    }
+                        TeleportTo(p);
                 }
-                Teleported?.Invoke(selectedId);
+                Teleported?.Invoke(key);
                 teleportStatus = TeleportStatus.None;
             }
+        }
+
+        // This may be called manually if required
+        static public void TeleportTo(Pose pose, bool positionFloor = true)
+        {
+            if (positionFloor)
+                pose.position.y -= floorLevel;
+            SetCameraOrientation(pose.orientation);
+            SetPlayerPosition(pose.position);
+
         }
 
         // Change color of rotation guide depending on ready state
@@ -623,7 +666,8 @@ namespace JumbliVR
             if (basedOnPlayerGaze)            
             {
                 // Flatten head orientation
-                q = Quat.LookDir((Input.Head.orientation * Vec3.Forward) * V.XYZ(1,0,1));
+                //q = Quat.LookDir((Input.Head.orientation * Vec3.Forward) * V.XYZ(1,0,1));
+                q = Utils.FlattenQuat(Input.Head.orientation);
             }
             else
                 q = stagePose.orientation;
@@ -664,15 +708,19 @@ namespace JumbliVR
             UpdateStagePose(stagePose);
         }
 
+        
         static public void UpdateStagePose(Pose pose)
         {
-            stagePose = pose;
-            Renderer.CameraRoot = stagePose.ToMatrix();
+            cameraPose = stagePose = pose;
+            cameraPose.position.y += heightAdjustment;
+            Renderer.CameraRoot = cameraPose.ToMatrix();
+            
         }
 
         
         static private Pose deferredTeleport;
         static private bool deferredTeleportRequested = false;
+        static private bool deferredStageUpdate = false;
 
         // This is useful when you want to initiate a teleport but you are currently inside a Hierarchy
         static public void RequestDeferredTeleport(Pose newPose)
@@ -684,12 +732,53 @@ namespace JumbliVR
 
         static public void ActiveSettingsWindow()
         {
-            ModalWindow.ActivateWithCloseButton("Locomotion settings", null, DrawSettings);
+            ModalWindow.ActivateWithCloseButton("Player settings", null, DrawSettings);
         }
 
-        
+
+        static private float startHeightAdjustY = float.MaxValue;
+        static private float startSettingsWindowY = 0;
+
+        const string alignmentIdSettings = "playerSettings";
         static private void DrawSettings()
         {
+            float min = 1.3f; // Just above floor height
+            if (World.HasBounds)
+                min = (World.BoundsPose.position.y - cameraPose.position.y) + .3f;
+            float max = 2.5f + min;
+
+            UI.PanelBegin();
+            Utils.AddLabelWithAlign(alignmentIdSettings, "Adjust Height");
+            
+            if (UI.HSlider("heightAdj", ref heightAdjustment, min, max, 0, .15f, UIConfirm.Pinch))
+            {
+                if (startHeightAdjustY == float.MaxValue)
+                {
+                    startHeightAdjustY = heightAdjustment;
+                    startSettingsWindowY = ModalWindow.GetWindowHeight();
+                }
+                deferredStageUpdate = true;
+                ModalWindow.SetWindowHeight(startSettingsWindowY + (heightAdjustment - startHeightAdjustY));
+            }
+            if (UI.LastElementActive.IsActive() == false)
+                startHeightAdjustY = float.MaxValue;
+
+            UI.SameLine();
+            if (UI.Button("Reset"))
+            {
+                startSettingsWindowY = ModalWindow.GetWindowHeight();
+                startHeightAdjustY = heightAdjustment;
+                heightAdjustment = 0;
+                deferredStageUpdate = true;
+                ModalWindow.SetWindowHeight(startSettingsWindowY + (heightAdjustment - startHeightAdjustY));
+            }
+            UI.HSeparator();
+            UI.PanelEnd();
+            
+            UI.Space(.005f);
+
+            UI.PanelBegin();
+            Utils.AddLabelWithAlign(alignmentIdSettings, "Locomotion");
             if (UI.Radio("Walking mode", flyingEnabled == false))
                 flyingEnabled = false;
             UI.SameLine();
@@ -698,20 +787,19 @@ namespace JumbliVR
                 
             UI.HSeparator();
 
-            UI.Label("Rotation");
-            UI.SameLine();
+            Utils.AddLabelWithAlign(alignmentIdSettings, "Rotation");
+            
             UI.Toggle(rotationEnabled ? "Enabled" : "Disabled", ref rotationEnabled);
             if (rotationEnabled == false)
                 UI.PushEnabled(false);
-            UI.Label("Rotation mode:");
-            UI.SameLine();
+            Utils.AddLabelWithAlign(alignmentIdSettings, "Turning");
 
             bool snapTurning = snapTurnDegrees >= 0;
 
-            if (UI.Radio("Smooth turning", snapTurning == false))
+            if (UI.Radio("Smooth", snapTurning == false))
                 snapTurnDegrees = -1;
             UI.SameLine();
-            if (UI.Radio("Snap turning", snapTurning))
+            if (UI.Radio("Snap", snapTurning))
             {
                 snapTurnDegrees = 30;
                 snapTurnDegreesStr = "" + snapTurnDegrees;
@@ -727,6 +815,9 @@ namespace JumbliVR
 
             if (rotationEnabled == false)
                 UI.PopEnabled();
+
+            UI.PanelEnd();
+            UI.Space(.005f);
 
         }
 
